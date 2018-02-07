@@ -1,0 +1,182 @@
+#include <assert.h>
+#include <math.h>
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "sampler.h"
+
+
+float real_signal = 0.0;
+float* read_signals;
+float* voter_signals;
+
+/* Reader synchronisation */
+pthread_mutex_t reader_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t reader_cond = PTHREAD_COND_INITIALIZER;
+int reader_ready = 0;
+
+/* Signal producer */
+void* signal_thread(void* arg)
+{
+	int m = SIGNAL_SAMPLING_INTERVAL;
+	float f = SIGNAL_SAMPLING_FREQUENCY;
+
+	int i;
+	while (1)
+	{
+		/* Compute sine result */
+		real_signal = sin(i/f); // sinf / sinl
+
+		/* Sleep for m milliseconds */
+		usleep(m * 1000);
+
+		++i;
+	}
+
+	return NULL;
+}
+
+
+/* Signal consumers */
+void* reader_thread(void* arg)
+{
+	int r = 0;
+	int mr = 0;
+	int m = READING_INTERVAL;
+	int id = ((reader_parameters_t*) arg)->id;
+	int drift = ((reader_parameters_t*) arg)->drift;
+	int offset = ((reader_parameters_t*) arg)->offset;
+	int jitter = ((reader_parameters_t*) arg)->jitter;
+	float error_rate  = ((reader_parameters_t*) arg)->error_rate;
+	float error_value = ((reader_parameters_t*) arg)->error_value;
+
+	/* Synchronise reader releases */
+	pthread_mutex_lock(&reader_mutex);
+	reader_ready += 1;
+	pthread_cond_wait(&reader_cond, &reader_mutex);
+	pthread_mutex_unlock(&reader_mutex);
+
+	/* Enforce offset */
+	usleep(offset * 1000);
+
+	while(1) {
+
+		/* Read input signal */
+		if (random() * 1.0 / RAND_MAX < error_rate)
+			read_signals[id] = (error_value ? error_value: random() * 1.0 / RAND_MAX);
+		else {
+			read_signals[id] = real_signal;
+		}
+
+		/* Enforce jitter */
+		if (jitter)
+			r = ((random() % jitter) - (jitter / 2));
+
+		/* Sleep for m milliseconds */
+		usleep( ((m + r - mr) * 1000) );
+		m += drift;
+
+		/* Correct after jitter */
+		if (r < 0) {
+			usleep(-r);
+			mr = 0;
+		} else {
+			mr = r;
+		}
+	}
+
+	return NULL;
+}
+
+
+int float_compare(const void* lhs, const void* rhs)
+{
+	return (*(float*)lhs) - (*(float*)rhs);
+}
+
+
+/* Voter thread */
+void* voter_thread(void* arg)
+{
+	int i, w;
+	float vote;
+	float voteAvg, min, max;
+
+	FILE* file_output = fopen("output.txt", "w");
+
+	w = 0;
+	while (1) {
+		/* Fetch reported signal values */
+		memcpy(&(voter_signals[w * NUM_READERS]), read_signals, sizeof(float) * NUM_READERS);
+
+		/* Compare input values */
+		qsort(&(voter_signals[w * NUM_READERS]), NUM_READERS, sizeof(float), float_compare);
+		
+		/* Use average signal as vote outcome */
+		for (vote = 0, i = 0; i < NUM_READERS * VOTING_WINDOW; ++i) {
+			vote += voter_signals[i];
+		}
+
+
+		voteAvg = vote / (NUM_READERS * VOTING_WINDOW);
+
+		/* Output vote and signal to file */
+		fprintf(file_output, "%f %f %f\n", real_signal, voteAvg, real_signal - voteAvg);
+		fflush(file_output);
+
+		usleep(VOTING_INTERVAL * 1000);
+		w = (w + 1) % VOTING_WINDOW;
+	}
+
+	return NULL;
+}
+
+int main(int argc, char* argv[])
+{
+	int s;
+	int i;
+
+
+	/* Allocate signal buffers */
+	read_signals = malloc(sizeof(float) * NUM_READERS);
+	assert(read_signals != NULL);
+
+	voter_signals = malloc(sizeof(float) * NUM_READERS * VOTING_WINDOW);
+	assert(voter_signals != NULL);
+
+	/* Create signal generation thread */
+	pthread_t signal_id;
+	s = pthread_create(&signal_id, NULL, &signal_thread, NULL);
+	assert(s == 0);
+
+	/* Create signal generation thread */
+	pthread_t voter_id;
+	s = pthread_create(&voter_id, NULL, &voter_thread, NULL);
+	assert(s == 0);
+
+	/* Create reader threads */
+	pthread_t *reader_ids = malloc(sizeof(pthread_t) * NUM_READERS);
+	assert(reader_ids != NULL);
+	for (i = 0; i < NUM_READERS; ++i) {
+		reader_parameters[i].id = i;
+		s = pthread_create(&(reader_ids[i]), NULL, 
+						   &reader_thread, &(reader_parameters[i]));
+		assert(s == 0);
+	}
+
+	/* Wait for reader threads */
+	while (reader_ready != NUM_READERS) ;
+
+	/* Release reader threads */
+	pthread_mutex_lock(&reader_mutex);
+	pthread_cond_broadcast(&reader_cond);
+	pthread_mutex_unlock(&reader_mutex);
+
+	/* NULL */
+	pthread_join(voter_id, NULL);
+
+	return 0;
+}
