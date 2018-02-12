@@ -32,7 +32,8 @@ reader_parameters_t reader_parameters[] = {
 //{.offset=  0, .drift=  0, .jitter=  0}
 
 /* Transient fault */
-{.offset=  0, .drift=  0, .jitter=  0, .error_rate=0.5, .error_value=0.}
+{.offset=  0, .drift=  0, .jitter=  0, .error_rate=0.5, .error_value=0.},
+{.offset=  0, .drift=  0, .jitter=  0, .error_rate=0.3, .error_value=0.}
 //{.offset=  0, .drift=  0, .jitter=  0, .error_rate=0.3, .error_value=0.}
 
 /* Permanent fault */

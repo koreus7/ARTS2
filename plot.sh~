@@ -1,8 +1,12 @@
 #!/bin/sh
 
 gnuplot -p -e "
-set yrange [-1:1]; 
-plot '<(tail -n20 output.txt)' using 1 lc -1 title 'Signal' with lines,
-	 '<(tail -n20 output.txt)' using 2 lc -1 title 'Vote',
-	'<(tail -n20 output.txt)' using 3 lc -1 title 'Error' with lines;
+set yrange [-2:2]; 
+plot 'output.txt' using 1 lc rgb 'green' title 'Signal' with lines,
+	'output.txt' using 2 lc -1 title 'Vote',
+	'output.txt' using 3 lc rgb 'red' title 'Error' with lines,
+	'output.txt' using 4 lc rgb 'blue' title 'Adjusted Average'
+	'output.txt' using 5 lc rgb 'orange' title 'MaxError';
 " 
+
+

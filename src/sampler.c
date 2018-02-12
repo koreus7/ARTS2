@@ -101,9 +101,9 @@ int float_compare(const void* lhs, const void* rhs)
 /* Voter thread */
 void* voter_thread(void* arg)
 {
-	int i, w;
+	int i, w, maxDiffIndex;
 	float vote;
-	float voteAvg, min, max;
+	float voteAvg, min, max, maxDiff, diff, adjustedAverage;
 
 	FILE* file_output = fopen("output.txt", "w");
 
@@ -122,9 +122,22 @@ void* voter_thread(void* arg)
 
 		voteAvg = vote / (NUM_READERS * VOTING_WINDOW);
 
+		maxDiff = fabs(voteAvg - voter_signals[0]); 		
+		maxDiffIndex = 0;
 
+		for(i = 1; i < NUM_READERS * VOTING_WINDOW; ++i) {
+			diff = fabs(voteAvg - voter_signals[i]);
+			if(diff > maxDiff) {
+				maxDiff = diff;
+				maxDiffIndex = i;
+			}
+		}
+
+		adjustedAverage = (vote - voter_signals[maxDiffIndex]) /( (NUM_READERS - 1) * VOTING_WINDOW);
+		
+		
 		/* Output vote and signal to file */
-		fprintf(file_output, "%f %f %f\n", real_signal, voteAvg, real_signal - voteAvg);
+		fprintf(file_output, "%f %f %f %f %f %i\n", real_signal, voteAvg, real_signal - voteAvg, adjustedAverage, maxDiff, maxDiffIndex);
 		fflush(file_output);
 
 		usleep(VOTING_INTERVAL * 1000);
